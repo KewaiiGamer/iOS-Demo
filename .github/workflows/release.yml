@@ -1,0 +1,49 @@
+name: Release IPA (unsigned)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build unsigned device .app
+        run: |
+          xcodebuild build \
+            -project iOSDemo.xcodeproj \
+            -scheme iOSDemo \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            EXPANDED_CODE_SIGN_IDENTITY=""
+
+      - name: Package .ipa (zip Payload)
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/iOSDemo.app"
+          test -d "$APP_PATH" || { echo "::error::$APP_PATH not found"; exit 1; }
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r -y iOSDemo-unsigned.ipa Payload
+          ls -lh iOSDemo-unsigned.ipa
+
+      - name: Attach .ipa to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: iOSDemo-unsigned.ipa
+          fail_on_unmatched_files: true
