@@ -1,0 +1,29 @@
+name: xtool fork build-check
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch of KewaiiGamer/xtool to check'
+        default: 'sync-upstream'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: KewaiiGamer/xtool
+          ref: ${{ inputs.ref }}
+
+      - name: Build xtool
+        run: |
+          docker compose run --build -e XTL_CI=1 xtool bash -c \
+            "swift build --product xtool && .build/debug/xtool --help"
+
+      - name: Run tests
+        if: ${{ !cancelled() }}
+        run: |
+          docker compose run -e XTL_CI=1 xtool bash -c "swift test"
