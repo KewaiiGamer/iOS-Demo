@@ -46,14 +46,27 @@ jobs:
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
+          set +e
           brew install ngrok || brew install ngrok/ngrok/ngrok
           ngrok config add-authtoken "$NGROK_AUTHTOKEN"
-          nohup ngrok tcp 5900 --log stdout > ngrok.log 2>&1 &
-          for i in $(seq 1 20); do
-            URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c 'import sys,json;t=json.load(sys.stdin)["tunnels"];print(t[0]["public_url"]) if t else print("")' 2>/dev/null)
+          nohup ngrok tcp 5900 --log stdout --log-format logfmt > ngrok.log 2>&1 &
+          URL=""
+          for i in $(seq 1 30); do
+            J=$(curl -s http://127.0.0.1:4040/api/tunnels)
+            URL=$(printf '%s' "$J" | python3 -c 'import sys,json
+try:
+    t=json.load(sys.stdin).get("tunnels",[])
+    print(t[0]["public_url"] if t else "")
+except Exception:
+    print("")')
             [ -n "$URL" ] && break
-            sleep 2
+            sleep 3
           done
+          echo "----- ngrok.log -----"; cat ngrok.log || true; echo "---------------------"
+          if [ -z "$URL" ]; then
+            echo "::error title=ngrok::No tunnel URL. See ngrok.log above (free plan may block TCP, or bad token)."
+            exit 1
+          fi
           HOSTPORT=${URL#tcp://}
           echo "::notice title=VNC endpoint::$HOSTPORT"
           echo "=================================================="
