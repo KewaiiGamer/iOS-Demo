@@ -1,0 +1,66 @@
+name: Debug (live Simulator screen via VNC)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Boot a simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available | grep -m1 -oE 'iPhone 1[5-9]( Pro)?' || echo "iPhone 15")
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b || true
+          open -a Simulator
+
+      - name: Build, install, launch
+        run: |
+          xcodebuild build \
+            -project iOSDemo.xcodeproj -scheme iOSDemo -configuration Debug \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+          APP="build/Build/Products/Debug-iphonesimulator/iOSDemo.app"
+          xcrun simctl install booted "$APP"
+          xcrun simctl launch booted com.kewaii.iOSDemo
+
+      - name: Enable macOS Screen Sharing (VNC :5900)
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -restart -agent -privs -all \
+            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD"
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
+
+      - name: Start ngrok TCP tunnel to VNC
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+        run: |
+          brew install ngrok || brew install ngrok/ngrok/ngrok
+          ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+          nohup ngrok tcp 5900 --log stdout > ngrok.log 2>&1 &
+          for i in $(seq 1 20); do
+            URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c 'import sys,json;t=json.load(sys.stdin)["tunnels"];print(t[0]["public_url"]) if t else print("")' 2>/dev/null)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
+          HOSTPORT=${URL#tcp://}
+          echo "::notice title=VNC endpoint::$HOSTPORT"
+          echo "=================================================="
+          echo " Connect a VNC viewer from Windows to:"
+          echo "   $HOSTPORT"
+          echo " Password = your VNC_PASSWORD secret"
+          echo "=================================================="
+
+      - name: Hold session open (90 min)
+        run: sleep 5100
