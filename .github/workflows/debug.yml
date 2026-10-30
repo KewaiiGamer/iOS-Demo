@@ -52,13 +52,7 @@ jobs:
           nohup ngrok tcp 5900 --log stdout --log-format logfmt > ngrok.log 2>&1 &
           URL=""
           for i in $(seq 1 30); do
-            J=$(curl -s http://127.0.0.1:4040/api/tunnels)
-            URL=$(printf '%s' "$J" | python3 -c 'import sys,json
-try:
-    t=json.load(sys.stdin).get("tunnels",[])
-    print(t[0]["public_url"] if t else "")
-except Exception:
-    print("")')
+            URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE 'tcp://[0-9a-z.]+:[0-9]+' | head -1)
             [ -n "$URL" ] && break
             sleep 3
           done
